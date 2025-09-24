@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DeadlyRNG Chopper</title>
+<style>
+  :root{
+    --bg:#0b1220;
+    --fg:#e6f6ff;
+    --accent:#ffcc32;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+  body{display:flex;align-items:center;justify-content:center;background:
+    radial-gradient(1200px 700px at 10% 10%, rgba(40,60,90,.25), transparent),
+    linear-gradient(180deg,#071021 0%, var(--bg) 60%);color:var(--fg)}
+  .wrapper{width:min(900px,96vw);max-width:1200px;padding:18px;box-sizing:border-box;position:relative}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  h1{font-size:18px;margin:0;color:var(--fg);font-weight:600}
+  .controls{display:flex;gap:10px;align-items:center}
+  .btn{background:transparent;border:1px solid rgba(255,255,255,.12);color:var(--fg);padding:8px 12px;border-radius:8px;cursor:pointer}
+  .btn.primary{background:linear-gradient(90deg,#ffb347,#ffcc32);color:#111;border:0}
+  .hud{display:flex;gap:12px;align-items:center;font-size:14px;opacity:.95}
+  canvas{display:block;width:100%;height:60vh;border-radius:10px;box-shadow: 0 8px 30px rgba(0,0,0,.6);}
+  .footer{margin-top:8px;color:rgba(230,246,255,.8);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .muted{opacity:.65}
+  .center{display:flex;gap:8px;align-items:center}
+  #overlay{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    font-size:42px;font-weight:700;text-align:center;
+    background:rgba(0,0,0,0.45);padding:16px 28px;border-radius:12px;
+    color:white;display:none;pointer-events:none;
+  }
+  #powerhud{
+    display:flex;gap:8px;align-items:center;font-size:13px;color:var(--fg);
+  }
+  .power-icon{
+    width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#111;
+    box-shadow:0 4px 8px rgba(0,0,0,0.25);
+  }
+  .power-shield{background:#66ccff;}
+  .power-boost{background:#ffd166;}
+  .power-slow{background:#b3ffb3;}
+  @media (max-width:600px){ canvas{height:55vh} h1{font-size:16px} #overlay{font-size:28px;padding:10px 18px} }
+</style>
+</head>
+<body>
+<div class="wrapper" role="application" aria-label="DeadlyRNG Chopper game">
+  <header>
+    <h1>DeadlyRNG Chopper</h1>
+    <div class="controls">
+      <div class="hud">
+        <div>Score: <span id="score">0</span></div>
+        <div>Best: <span id="best">0</span></div>
+        <div>Level: <span id="level">1</span></div>
+        <div id="powerhud" aria-hidden="true">
+          <div id="hud-shield" style="display:none" class="power-icon power-shield">S</div>
+          <div id="hud-boost" style="display:none" class="power-icon power-boost">+5</div>
+          <div id="hud-slow" style="display:none" class="power-icon power-slow">Z</div>
+        </div>
+      </div>
+      <button id="restart" class="btn primary" title="Restart game">Restart</button>
+    </div>
+  </header>
+
+  <canvas id="game"></canvas>
+  <div id="overlay">Get Ready!</div>
+
+  <div class="footer">
+    <div class="muted">Controls: Click or hold mouse / tap & hold to rise. Spacebar also works.</div>
+    <div class="center muted">Tip: Hold to climb gently — quick taps for small hops.</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const levelEl = document.getElementById('level');
+  const restartBtn = document.getElementById('restart');
+  const hudShield = document.getElementById('hud-shield');
+  const hudBoost = document.getElementById('hud-boost');
+  const hudSlow = document.getElementById('hud-slow');
+
+  // sizing
+  let width, height;
+  function resize() {
+    width = Math.max(480, Math.floor(canvas.clientWidth));
+    height = Math.max(320, Math.floor(canvas.clientHeight));
+    canvas.width = Math.floor(width * devicePixelRatio);
+    canvas.height = Math.floor(height * devicePixelRatio);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // states
+  let state = "title"; // title | playing | gameover
+  const config = {
+    gravity: 0.32,
+    thrust: -4.40,
+    maxFallSpeed: 6,
+    helicopterRadius: 18,
+    obstacleSpeed: 4.5, // base start speed (faster)
+    gapSize: 140,
+    obstacleWidth: 54,
+    obstacleSpacing: 430
+  };
+
+  // palettes
+  const palettes = [
+    { skyTop:"#71c9f8", skyBottom:"#1a8fd6", ground:"#165c99", obstacle:"#0a3c66", heliBody:"#ffd166", heliDetail:"#0b1220" },
+    { skyTop:"#ffcf71", skyBottom:"#e67e22", ground:"#a94f00", obstacle:"#5c2c00", heliBody:"#ff884d", heliDetail:"#222" },
+    { skyTop:"#9b71f8", skyBottom:"#341a66", ground:"#180046", obstacle:"#d3c4ff", heliBody:"#a29bfe", heliDetail:"#2c003e" },
+    { skyTop:"#71f89b", skyBottom:"#1ad668", ground:"#0a6634", obstacle:"#004422", heliBody:"#00c853", heliDetail:"#002b1a" },
+    { skyTop:"#f871a6", skyBottom:"#d61a5e", ground:"#660a2e", obstacle:"#ff66cc", heliBody:"#00f6ff", heliDetail:"#111" }
+  ];
+
+  // helicopter image (optional)
+  const heliImg = new Image();
+  heliImg.src = "helicopter.png"; // drop your PNG here
+
+  // gameplay variables
+  let heli, obstacles, powerups, score, best = 0, level;
+  let pressing = false;
+
+  // power-up timers/state
+  let playerShield = 0;         // 0 or 1 (extra lives)
+  let slowRemaining = 0;        // frames / seconds
+  const slowFactor = 0.5;       // slow motion multiplier
+  const slowDurationMs = 4500;  // slow length
+
+  // load best from storage
+  try { best = parseInt(localStorage.getItem('deadlyrng_best') || '0', 10) || 0; } catch(e){ best = 0; }
+  bestEl.textContent = best;
+
+  // spawn powerups occasionally
+  let nextPowerupIn = randRange(4000, 9000); // ms until next spawn
+  function randRange(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+
+  function resetGame() {
+    heli = { x: Math.round(width * 0.22), y: Math.round(height * 0.36), vy: 0, angle: 0 };
+    obstacles = [];
+    powerups = [];
+    score = 0;
+    level = 1;
+    playerShield = 0;
+    slowRemaining = 0;
+    config.obstacleSpeed = 4.5; // base start speed (faster)
+    config.gapSize = 140;
+    for (let i = 0; i < 3; i++) spawnObstacle(width + 80 + i * config.obstacleSpacing);
+    updateHUD();
+    updatePowerHUD();
+    state = "title";
+    overlay.textContent = "Get Ready!";
+    overlay.style.display = "block";
+    setTimeout(()=>{ overlay.style.display = "none"; }, 900);
+  }
+
+  function spawnObstacle(x) {
+    const minY = Math.max(60, Math.floor(config.gapSize / 2) + 10);
+    const maxY = height - Math.max(60, Math.floor(config.gapSize / 2) + 10);
+    const gapY = Math.floor(Math.random() * (maxY - minY + 1)) + minY;
+    obstacles.push({ x: x, gapY: gapY, passed: false });
+  }
+
+  // spawn a power-up object at x
+  // types: 'shield','boost','slow'
+  function spawnPowerup(x) {
+    const types = ['shield','boost','slow'];
+    const type = types[Math.floor(Math.random()*types.length)];
+// Pick a nearby obstacle to align with
+const ref = obstacles.length ? obstacles[obstacles.length - 1] : null;
+let y;
+if (ref) {
+  // inside the gap, with a little vertical jitter
+  y = ref.gapY + randRange(-config.gapSize/3, config.gapSize/3);
+} else {
+  // fallback if no obstacles yet
+  y = height / 2;
+}
+powerups.push({ x, y, type, w: 28, h: 28 });
+
+  }
+
+  // audio
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const audioCtx = new AudioCtx();
+
+  function playThrustSound() {
+    if (state !== "playing") return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(520, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.22);
+  }
+
+  function playCrashSound() {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(80, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.65);
+  }
+
+  function playPickupSound() {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(880, audioCtx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.08);
+    g.gain.setValueAtTime(0.08, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.13);
+  }
+
+  // HUD
+  function updateHUD() {
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+    levelEl.textContent = level;
+  }
+  function updatePowerHUD() {
+    hudShield.style.display = playerShield > 0 ? '' : 'none';
+    hudBoost.style.display = 'none'; // boost is instant, show momentarily when picked
+    hudSlow.style.display = slowRemaining > 0 ? '' : 'none';
+  }
+
+  // overlay helper
+  function showOverlay(msg, ms = 1000) {
+    overlay.style.display = "block";
+    overlay.textContent = msg;
+    setTimeout(()=>{ overlay.style.display = "none"; }, ms);
+  }
+
+  // collision helpers
+  function collidesCircleRect(cx, cy, r, rx, ry, rw, rh) {
+    const closestX = Math.max(rx, Math.min(cx, rx + rw));
+    const closestY = Math.max(ry, Math.min(cy, ry + rh));
+    const dx = cx - closestX, dy = cy - closestY;
+    return (dx*dx + dy*dy) < (r*r);
+  }
+
+  function applyPowerup(pu) {
+    if (!pu) return;
+    if (pu.type === 'shield') {
+      playerShield = Math.min(1, playerShield + 1); // one shield
+      updatePowerHUD();
+      playPickupSound();
+      showOverlay("Shield Collected!", 900);
+    } else if (pu.type === 'boost') {
+      score += 5;
+      updateHUD();
+      playPickupSound();
+      // briefly flash boost HUD
+      hudBoost.style.display = '';
+      setTimeout(()=> hudBoost.style.display = 'none', 900);
+      showOverlay("+5 Score!", 900);
+    } else if (pu.type === 'slow') {
+      // extend slow
+      slowRemaining = Math.max(slowRemaining, slowDurationMs);
+      // if currently not slowed, apply factor immediately
+      playPickupSound();
+      updatePowerHUD();
+      showOverlay("Slow Time!", 900);
+    }
+  }
+
+  // handle crash situation (use shield if present)
+  function handleCrash() {
+    if (playerShield > 0) {
+      playerShield = Math.max(0, playerShield - 1);
+      updatePowerHUD();
+      playPickupSound();
+      showOverlay("Shield Used!", 900);
+      // rebound a bit so player isn't stuck inside obstacle
+      heli.vy = Math.abs(config.thrust) / 2;
+      return; // don't end game
+    } else {
+      // no shield -> real game over
+      endGame();
+    }
+  }
+
+  function endGame() {
+    state = "gameover";
+    playCrashSound();
+    overlay.style.display = "block";
+    overlay.textContent = "Game Over!";
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem('deadlyrng_best', best); } catch(e){}
+    }
+    updateHUD();
+  }
+
+  // draw power-ups
+function drawPowerups() {
+  const t = performance.now() / 600; // for animations
+
+  for (const pu of powerups) {
+    ctx.save();
+    ctx.translate(pu.x, pu.y);
+
+    // pulsing scale
+    const pulse = 1 + 0.1 * Math.sin(performance.now() / 200);
+    ctx.scale(pulse, pulse);
+
+    // spinning glow circle
+    const glowRadius = pu.w * 0.9 + 6;
+    const g = ctx.createRadialGradient(0, 0, pu.w * 0.3, 0, 0, glowRadius);
+    if (pu.type === 'shield') {
+      g.addColorStop(0, "rgba(102,204,255,0.7)");
+      g.addColorStop(1, "rgba(102,204,255,0)");
+    } else if (pu.type === 'boost') {
+      g.addColorStop(0, "rgba(255,209,102,0.7)");
+      g.addColorStop(1, "rgba(255,209,102,0)");
+    } else if (pu.type === 'slow') {
+      g.addColorStop(0, "rgba(179,255,179,0.7)");
+      g.addColorStop(1, "rgba(179,255,179,0)");
+    }
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // rotate the square container slowly
+    ctx.rotate(t);
+
+    // draw the main square
+    ctx.fillStyle = (pu.type === 'shield') ? "#66ccff" :
+                    (pu.type === 'boost') ? "#ffd166" : "#b3ffb3";
+    roundRect(ctx, -pu.w/2, -pu.h/2, pu.w, pu.h, 6);
+    ctx.fill();
+
+    // icon text
+    ctx.fillStyle = "#111";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (pu.type === 'shield') ctx.fillText("S", 0, 1);
+    if (pu.type === 'boost') ctx.fillText("+5", 0, 1);
+    if (pu.type === 'slow')  ctx.fillText("Z", 0, 1);
+
+    ctx.restore();
+  }
+}
+
+
+  // rounded rect helper
+  function roundRect(ctx, x, y, w, h, r) {
+    const radius = Math.min(Math.abs(r), Math.abs(w)/2, Math.abs(h)/2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + w, y, x + w, y + h, radius);
+    ctx.arcTo(x + w, y + h, x, y + h, radius);
+    ctx.arcTo(x, y + h, x, y, radius);
+    ctx.arcTo(x, y, x + w, y, radius);
+    ctx.closePath();
+  }
+
+  // draw helicopter (image fallback)
+  function drawHelicopter(x, y, r, palette) {
+    if (heliImg.complete && heliImg.naturalWidth > 0) {
+      // maintain aspect ratio; fit to width = r*2
+      const iw = heliImg.naturalWidth, ih = heliImg.naturalHeight;
+      const hratio = (r*2) / iw;
+      const drawW = iw * hratio, drawH = ih * hratio;
+      ctx.drawImage(heliImg, x - drawW/2, y - drawH/2, drawW, drawH);
+    } else {
+      // fallback shape
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = palette.heliBody;
+      roundRect(ctx, -r, -r*0.55, r*2, r*1.1, r*0.18);
+      ctx.fill();
+      ctx.fillStyle = palette.heliDetail;
+      ctx.beginPath();
+      ctx.ellipse(r*0.35, -r*0.08, r*0.36, r*0.42, -0.25, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = palette.heliBody;
+      ctx.fillRect(r*0.9, -r*0.07, r*0.95, r*0.12);
+      ctx.strokeStyle = palette.heliBody;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-r*0.6, r*0.6);
+      ctx.lineTo(r*0.6, r*0.6);
+      ctx.stroke();
+      ctx.restore();
+      // rotor
+      ctx.save();
+      ctx.translate(x, y - r*0.9);
+      const t = performance.now() * 0.014;
+      ctx.rotate(t);
+      ctx.fillStyle = '#dfe6e9';
+      ctx.fillRect(-r*1.6, -6, r*3.2, 12);
+      ctx.restore();
+    }
+  }
+
+  // render background & obstacles (respect current config.gapSize)
+  function renderBackground(palette) {
+    const g = ctx.createLinearGradient(0, 0, 0, height);
+    g.addColorStop(0, palette.skyTop);
+    g.addColorStop(1, palette.skyBottom);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
+
+    const groundHeight = Math.floor(height * 0.08);
+    ctx.fillStyle = palette.ground;
+    ctx.fillRect(0, height - groundHeight, width, groundHeight);
+
+    // obstacles
+    for (const o of obstacles) {
+      const rx = o.x, rw = config.obstacleWidth;
+      const gapY = o.gapY;
+      // top
+      ctx.fillStyle = palette.obstacle;
+      ctx.fillRect(rx, 0, rw, gapY - config.gapSize / 2);
+      // bottom
+      ctx.fillRect(rx, gapY + config.gapSize / 2, rw, height - (gapY + config.gapSize / 2) - groundHeight);
+      // small highlight
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rx + 0.5, 0.5, rw - 1, gapY - config.gapSize / 2 - 1);
+      ctx.strokeRect(rx + 0.5, gapY + config.gapSize / 2 + 0.5, rw - 1, height - (gapY + config.gapSize / 2) - groundHeight - 1);
+    }
+  }
+
+  // main update loop
+  let lastTime = performance.now();
+  function loop(now) {
+    const dtMs = now - lastTime;
+    const dt = Math.max(1, Math.min(50, dtMs)) / (1000 / 60); // normalized frames
+    lastTime = now;
+
+    // slow timer update
+    if (slowRemaining > 0) {
+      slowRemaining = Math.max(0, slowRemaining - dtMs);
+      // when >0, obstacles move slower
+      // show HUD
+    }
+
+    // powerup spawn timer
+    nextPowerupIn -= dtMs;
+    if (nextPowerupIn <= 0) {
+      // spawn near right side
+      spawnPowerup(width + randRange(40, 200));
+      nextPowerupIn = randRange(6000, 14000);
+    }
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (state === "title") {
+      // animated title screen (use first palette)
+      // move obstacles slowly
+      for (const o of obstacles) o.x -= (config.obstacleSpeed * 0.25) * dt;
+      if (obstacles.length && obstacles[0].x + config.obstacleWidth < -60) {
+        obstacles.shift();
+        spawnObstacle(obstacles.length ? obstacles[obstacles.length - 1].x + config.obstacleSpacing : width + config.obstacleSpacing);
+      }
+      heli.y = height * 0.5 + Math.sin(now / 500) * 10;
+      renderBackground(palettes[0]);
+      drawHelicopter(heli.x, heli.y, config.helicopterRadius, palettes[0]);
+
+      // title texts
+      ctx.fillStyle = "white";
+      ctx.font = "bold 42px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("DeadlyRNG Chopper", width / 2, height / 2 - 60);
+      ctx.font = "18px sans-serif";
+      ctx.fillStyle = "yellow";
+      ctx.fillText("Click or Press Space to Start", width / 2, height / 2);
+      // draw any powerups on title screen
+      drawPowerups();
+    }
+    else if (state === "playing") {
+      // physics
+      if (pressing) {
+        heli.vy = Math.max(config.thrust, heli.vy + (config.thrust - heli.vy) * 0.12);
+      } else {
+        heli.vy += config.gravity;
+      }
+      heli.vy = Math.max(config.thrust * 1.4, Math.min(config.maxFallSpeed, heli.vy));
+      heli.y += heli.vy * dt;
+      heli.angle = Math.max(-0.9, Math.min(0.9, heli.vy * 0.06));
+
+      // move obstacles (account for slowRemaining)
+      const speedFactor = slowRemaining > 0 ? slowFactor : 1;
+      const moveSpeed = config.obstacleSpeed * speedFactor;
+      for (const o of obstacles) o.x -= moveSpeed * dt;
+
+      // move powerups left
+      for (const pu of powerups) pu.x -= moveSpeed * dt;
+
+      // spawn obstacles
+      if (!obstacles.length || (obstacles[obstacles.length - 1].x < width - config.obstacleSpacing)) {
+        spawnObstacle(width + 40);
+      }
+
+      // remove offscreen obstacles and award score
+      obstacles = obstacles.filter(o => {
+        if (!o.passed && o.x + config.obstacleWidth < heli.x) {
+          o.passed = true;
+          score += 1;
+          // level on multiples of 5
+          if (score % 5 === 0) {
+            level = Math.min(999, level + 1);
+            // difficulty scaling
+            config.obstacleSpeed = 4.5 + (level - 1) * 0.3; // base 4.5 + 0.3/level
+            config.gapSize = Math.max(90, 140 - (level - 1) * 5);
+            showOverlay("Level " + level + "!", 1000);
+          }
+          updateHUD();
+        }
+        return o.x + config.obstacleWidth > -120;
+      });
+
+      // remove offscreen powerups
+      powerups = powerups.filter(pu => pu.x > -80);
+
+      // check collision with ground/ceiling
+      if (heli.y - config.helicopterRadius <= 0 || heli.y + config.helicopterRadius >= height) {
+        handleCrash();
+      }
+
+      // obstacle collision detection
+      for (const o of obstacles) {
+        const rx = o.x, rw = config.obstacleWidth;
+        const topRect = { x: rx, y: 0, w: rw, h: o.gapY - config.gapSize / 2 };
+        const botRect = { x: rx, y: o.gapY + config.gapSize / 2, w: rw, h: height - (o.gapY + config.gapSize / 2) - Math.floor(height * 0.08) };
+        if (collidesCircleRect(heli.x, heli.y, config.helicopterRadius - 2, topRect.x, topRect.y, topRect.w, topRect.h) ||
+            collidesCircleRect(heli.x, heli.y, config.helicopterRadius - 2, botRect.x, botRect.y, botRect.w, botRect.h)) {
+          handleCrash();
+          break;
+        }
+      }
+
+      // check pickup collisions
+      for (let i = powerups.length - 1; i >= 0; i--) {
+        const pu = powerups[i];
+        const collided = Math.hypot(pu.x - heli.x, pu.y - heli.y) < config.helicopterRadius + 12;
+        if (collided) {
+          applyPowerup(pu);
+          powerups.splice(i, 1);
+        }
+      }
+
+      // draw background, obstacles, powerups, helicopter
+      const palette = palettes[(level - 1) % palettes.length];
+      renderBackground(palette);
+      drawPowerups();
+      drawHelicopter(heli.x, heli.y, config.helicopterRadius, palette);
+
+      // HUD text in canvas
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 18px Inter, Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Level: ' + level, width / 2, 28);
+
+      // update HUD elements
+      updatePowerHUD();
+    }
+    else if (state === "gameover") {
+      const palette = palettes[(level - 1) % palettes.length];
+      renderBackground(palette);
+      drawPowerups();
+      drawHelicopter(heli.x, heli.y, config.helicopterRadius, palette);
+      // overlay already shown in endGame()
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  // input handling
+  function setPress(val) {
+    if (val && !pressing) {
+      if (state === "title") {
+        // start game
+        state = "playing";
+        showOverlay("Get Ready!", 800);
+        // small delay before full play to let player prepare
+        setTimeout(() => { /* begin immediately in loop */ }, 250);
+      } else if (state === "gameover") {
+        // restart to title (or immediate restart)
+        resetGame();
+      } else { // playing
+        // thrust
+        heli.vy = config.thrust;
+        playThrustSound();
+      }
+    }
+    pressing = val;
+  }
+
+  // mouse / touch / keyboard
+  window.addEventListener('mousedown', e => { e.preventDefault(); setPress(true); });
+  window.addEventListener('mouseup', e => { e.preventDefault(); setPress(false); });
+  window.addEventListener('touchstart', e => { e.preventDefault(); setPress(true); }, { passive: false });
+  window.addEventListener('touchend', e => { e.preventDefault(); setPress(false); }, { passive: false });
+  window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); setPress(true); } });
+  window.addEventListener('keyup', e => { if (e.code === 'Space') { e.preventDefault(); setPress(false); } });
+
+  // restart button
+  restartBtn.addEventListener('click', () => {
+    state = "title";
+    resetGame();
+  });
+
+  // helper: spawn obstacles & initial state
+  resetGame();
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
