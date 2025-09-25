@@ -197,7 +197,7 @@
   // spawn a power-up object at x
   // types: 'shield','boost','slow'
   function spawnPowerup(x) {
-    const types = ['shield','boost','slow','invincible'];
+    const types = ['shield','shield','boost','slow','invincible'];
     const type = types[Math.floor(Math.random()*types.length)];
 // Pick a nearby obstacle to align with
 const ref = obstacles.length ? obstacles[obstacles.length - 1] : null;
@@ -725,3 +725,4 @@ function setPress(val) {
 </script>
 </body>
 </html>
+
