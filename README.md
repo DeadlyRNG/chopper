@@ -28,5 +28,6 @@
 
   <p style="text-align:center; margin-top:15px;">
     <em>Made with love 🚁</em>
+        <em>Mobile version here https://deadlyrng.itch.io/deadlyrng-chopper 🚁</em>
   </p>
 </div>
