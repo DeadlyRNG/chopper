@@ -263,7 +263,13 @@ powerups.push({ x, y, type, w: 28, h: 28 });
     levelEl.textContent = level;
   }
 function updatePowerHUD() {
-  hudShield.style.display = playerShield > 0 ? '' : 'none';
+if (playerShield > 0) {
+  hudShield.style.display = '';
+  hudShield.textContent = "S x" + playerShield;
+} else {
+  hudShield.style.display = 'none';
+  hudShield.textContent = "S";
+}
   hudBoost.style.display = 'none'; // boost is instant, show briefly
   hudSlow.style.display = slowRemaining > 0 ? '' : 'none';
 
@@ -307,7 +313,11 @@ function showInvincibleTimer() {
   }
 
   function applyPowerup(pu){
-    if(pu.type==='shield'){ playerShield=1; playPickupSound(); showOverlay("Shield!",900); }
+if (pu.type === 'shield') {
+  playerShield++;
+  playPickupSound();
+  showOverlay("Shield x" + playerShield + "!", 900);
+}
     else if(pu.type==='boost'){ score+=5; updateHUD(); playPickupSound(); hudBoost.style.display=''; setTimeout(()=>hudBoost.style.display='none',900); showOverlay("+5!",900); }
     else if(pu.type==='slow'){ slowRemaining=slowDurationMs; playPickupSound(); showOverlay("Slow Time!",900); }
     else if(pu.type==='invincible'){ invincibleRemaining=invincibleDurationMs; playPickupSound(); showOverlay("Invincible!",900); }
@@ -318,13 +328,13 @@ function showInvincibleTimer() {
   // handle crash situation (use shield if present)
   function handleCrash(){
     if(invincibleRemaining>0){ return; } // ignore crash
-    if(playerShield>0){ 
-      playerShield=0; 
-      updatePowerHUD(); 
-      startShieldCountdown(); 
-    } else { 
-      endGame(); 
-    }
+if (playerShield > 0) {
+  playerShield--;
+  updatePowerHUD();
+  startShieldCountdown();
+} else {
+  endGame();
+}
   }
 
 
