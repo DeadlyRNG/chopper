@@ -684,6 +684,7 @@ function setPress(val) {
       resetGame();
     } else if (state === "playing") {
       heli.vy = config.thrust;
+      playThrustSound(); // 🔊 Play sound on thrust
     }
   }
   pressing = val;
@@ -714,4 +715,3 @@ function setPress(val) {
 </script>
 </body>
 </html>
-
