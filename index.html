@@ -25,15 +25,33 @@
   .footer{margin-top:8px;color:rgba(230,246,255,.8);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
   .muted{opacity:.65}
   .center{display:flex;gap:8px;align-items:center}
+.power-invincible { background:#ff6eff; }
   #overlay{
     position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
     font-size:42px;font-weight:700;text-align:center;
     background:rgba(0,0,0,0.45);padding:16px 28px;border-radius:12px;
     color:white;display:none;pointer-events:none;
   }
-  #powerhud{
-    display:flex;gap:8px;align-items:center;font-size:13px;color:var(--fg);
-  }
+#powerhud {
+  display:flex;
+  gap:8px;
+  align-items:center;
+  font-size:13px;
+  color:var(--fg);
+}
+#invincible-overlay {
+  position:absolute;
+  top:30%;
+  left:50%;
+  transform:translateX(-50%);
+  font-size:28px;
+  font-weight:700;
+  color:#ff6eff;
+  display:none;
+  pointer-events:none;
+  text-shadow:0 0 6px rgba(0,0,0,0.6);
+}
+
   .power-icon{
     width:26px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#111;
     box-shadow:0 4px 8px rgba(0,0,0,0.25);
@@ -54,21 +72,23 @@
         <div>Best: <span id="best">0</span></div>
         <div>Level: <span id="level">1</span></div>
         <div id="powerhud" aria-hidden="true">
-          <div id="hud-shield" style="display:none" class="power-icon power-shield">S</div>
-          <div id="hud-boost" style="display:none" class="power-icon power-boost">+5</div>
-          <div id="hud-slow" style="display:none" class="power-icon power-slow">Z</div>
-        </div>
+        <div id="hud-shield" style="display:none" class="power-icon power-shield">S</div>
+        <div id="hud-boost" style="display:none" class="power-icon power-boost">+5</div>
+        <div id="hud-slow" style="display:none" class="power-icon power-slow">Z</div>
+        <div id="hud-invincible" style="display:none" class="power-icon power-invincible">⭐</div>
       </div>
       <button id="restart" class="btn primary" title="Restart game">Restart</button>
-    </div>
+     </div>
+   </div>
   </header>
 
   <canvas id="game"></canvas>
   <div id="overlay">Get Ready!</div>
+  <div id="invincible-overlay">⭐</div>
 
   <div class="footer">
     <div class="muted">Controls: Click or hold mouse / tap & hold to rise. Spacebar also works.</div>
-    <div class="center muted">To play on Mobile: https://deadlyrng.itch.io/deadlyrng-chopper.</div>
+    <div class="center muted">Tip: Hold to climb gently — quick taps for small hops.</div>
   </div>
 </div>
 
@@ -84,6 +104,7 @@
   const hudShield = document.getElementById('hud-shield');
   const hudBoost = document.getElementById('hud-boost');
   const hudSlow = document.getElementById('hud-slow');
+  const hudInvincible = document.getElementById('hud-invincible');
 
   // sizing
   let width, height;
@@ -132,8 +153,11 @@
   // power-up timers/state
   let playerShield = 0;         // 0 or 1 (extra lives)
   let slowRemaining = 0;        // frames / seconds
+  let invincibleRemaining = 0;
+  const invincibleDurationMs = 5000;
   const slowFactor = 0.5;       // slow motion multiplier
   const slowDurationMs = 4500;  // slow length
+
 
   // load best from storage
   try { best = parseInt(localStorage.getItem('deadlyrng_best') || '0', 10) || 0; } catch(e){ best = 0; }
@@ -151,6 +175,7 @@
     level = 1;
     playerShield = 0;
     slowRemaining = 0;
+    invincibleRemaining = 0;
     config.obstacleSpeed = 4.5; // base start speed (faster)
     config.gapSize = 140;
     for (let i = 0; i < 3; i++) spawnObstacle(width + 80 + i * config.obstacleSpacing);
@@ -172,7 +197,7 @@
   // spawn a power-up object at x
   // types: 'shield','boost','slow'
   function spawnPowerup(x) {
-    const types = ['shield','boost','slow'];
+    const types = ['shield','boost','slow','invincible'];
     const type = types[Math.floor(Math.random()*types.length)];
 // Pick a nearby obstacle to align with
 const ref = obstacles.length ? obstacles[obstacles.length - 1] : null;
@@ -237,11 +262,34 @@ powerups.push({ x, y, type, w: 28, h: 28 });
     bestEl.textContent = best;
     levelEl.textContent = level;
   }
-  function updatePowerHUD() {
-    hudShield.style.display = playerShield > 0 ? '' : 'none';
-    hudBoost.style.display = 'none'; // boost is instant, show momentarily when picked
-    hudSlow.style.display = slowRemaining > 0 ? '' : 'none';
+function updatePowerHUD() {
+  hudShield.style.display = playerShield > 0 ? '' : 'none';
+  hudBoost.style.display = 'none'; // boost is instant, show briefly
+  hudSlow.style.display = slowRemaining > 0 ? '' : 'none';
+
+  if (invincibleRemaining > 0) {
+    hudInvincible.style.display = '';
+    hudInvincible.textContent = "⭐ " + Math.ceil(invincibleRemaining / 1000);
+  } else {
+    hudInvincible.style.display = 'none';
+    hudInvincible.textContent = "⭐";
   }
+}
+
+const invincibleOverlay = document.getElementById('invincible-overlay');
+
+function showInvincibleTimer() {
+  if (invincibleRemaining > 0) {
+    invincibleOverlay.style.display = "block";
+    invincibleOverlay.textContent = "⭐ " + Math.ceil(invincibleRemaining / 1000);
+  } else {
+    invincibleOverlay.style.display = "none";
+  }
+}
+
+
+
+
 
   // overlay helper
   function showOverlay(msg, ms = 1000) {
@@ -258,46 +306,49 @@ powerups.push({ x, y, type, w: 28, h: 28 });
     return (dx*dx + dy*dy) < (r*r);
   }
 
-  function applyPowerup(pu) {
-    if (!pu) return;
-    if (pu.type === 'shield') {
-      playerShield = Math.min(1, playerShield + 1); // one shield
-      updatePowerHUD();
-      playPickupSound();
-      showOverlay("Shield Collected!", 900);
-    } else if (pu.type === 'boost') {
-      score += 5;
-      updateHUD();
-      playPickupSound();
-      // briefly flash boost HUD
-      hudBoost.style.display = '';
-      setTimeout(()=> hudBoost.style.display = 'none', 900);
-      showOverlay("+5 Score!", 900);
-    } else if (pu.type === 'slow') {
-      // extend slow
-      slowRemaining = Math.max(slowRemaining, slowDurationMs);
-      // if currently not slowed, apply factor immediately
-      playPickupSound();
-      updatePowerHUD();
-      showOverlay("Slow Time!", 900);
-    }
+  function applyPowerup(pu){
+    if(pu.type==='shield'){ playerShield=1; playPickupSound(); showOverlay("Shield!",900); }
+    else if(pu.type==='boost'){ score+=5; updateHUD(); playPickupSound(); hudBoost.style.display=''; setTimeout(()=>hudBoost.style.display='none',900); showOverlay("+5!",900); }
+    else if(pu.type==='slow'){ slowRemaining=slowDurationMs; playPickupSound(); showOverlay("Slow Time!",900); }
+    else if(pu.type==='invincible'){ invincibleRemaining=invincibleDurationMs; playPickupSound(); showOverlay("Invincible!",900); }
+    updatePowerHUD();
+
   }
 
   // handle crash situation (use shield if present)
-  function handleCrash() {
-    if (playerShield > 0) {
-      playerShield = Math.max(0, playerShield - 1);
-      updatePowerHUD();
-      playPickupSound();
-      showOverlay("Shield Used!", 900);
-      // rebound a bit so player isn't stuck inside obstacle
-      heli.vy = Math.abs(config.thrust) / 2;
-      return; // don't end game
-    } else {
-      // no shield -> real game over
-      endGame();
+  function handleCrash(){
+    if(invincibleRemaining>0){ return; } // ignore crash
+    if(playerShield>0){ 
+      playerShield=0; 
+      updatePowerHUD(); 
+      startShieldCountdown(); 
+    } else { 
+      endGame(); 
     }
   }
+
+
+// --- Countdown safe-restart ---
+function startShieldCountdown() {
+  state = "shield_pause";
+  heli.y = height / 2;   // put heli in center
+  heli.vy = 0;
+
+  let countdown = 3;
+  overlay.style.display = "block";
+  overlay.textContent = "Safe! " + countdown;
+
+  const timer = setInterval(() => {
+    countdown--;
+    if (countdown > 0) {
+      overlay.textContent = "Safe! " + countdown;
+    } else {
+      clearInterval(timer);
+      overlay.style.display = "none";
+      state = "playing"; // resume
+    }
+  }, 1000);
+}
 
   function endGame() {
     state = "gameover";
@@ -310,11 +361,8 @@ powerups.push({ x, y, type, w: 28, h: 28 });
     }
     updateHUD();
   }
-
-  // draw power-ups
-function drawPowerups() {
-  const t = performance.now() / 600; // for animations
-
+ function drawPowerups() {
+  const t = performance.now() / 900;
   for (const pu of powerups) {
     ctx.save();
     ctx.translate(pu.x, pu.y);
@@ -335,7 +383,11 @@ function drawPowerups() {
     } else if (pu.type === 'slow') {
       g.addColorStop(0, "rgba(179,255,179,0.7)");
       g.addColorStop(1, "rgba(179,255,179,0)");
+    } else if (pu.type === 'invincible') {
+      g.addColorStop(0, "rgba(255,110,255,0.7)");
+      g.addColorStop(1, "rgba(255,110,255,0)");
     }
+
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
@@ -345,19 +397,31 @@ function drawPowerups() {
     ctx.rotate(t);
 
     // draw the main square
-    ctx.fillStyle = (pu.type === 'shield') ? "#66ccff" :
-                    (pu.type === 'boost') ? "#ffd166" : "#b3ffb3";
-    roundRect(ctx, -pu.w/2, -pu.h/2, pu.w, pu.h, 6);
-    ctx.fill();
-
-    // icon text
-    ctx.fillStyle = "#111";
-    ctx.font = "bold 12px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    if (pu.type === 'shield') ctx.fillText("S", 0, 1);
-    if (pu.type === 'boost') ctx.fillText("+5", 0, 1);
-    if (pu.type === 'slow')  ctx.fillText("Z", 0, 1);
+    if (pu.type === 'shield') {
+      ctx.fillStyle = "#66ccff";
+      roundRect(ctx, -pu.w/2, -pu.h/2, pu.w, pu.h, 6);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.fillText("S", 0, 1);
+    } else if (pu.type === 'boost') {
+      ctx.fillStyle = "#ffd166";
+      roundRect(ctx, -pu.w/2, -pu.h/2, pu.w, pu.h, 6);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.fillText("+5", 0, 1);
+    } else if (pu.type === 'slow') {
+      ctx.fillStyle = "#b3ffb3";
+      roundRect(ctx, -pu.w/2, -pu.h/2, pu.w, pu.h, 6);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.fillText("Z", 0, 1);
+    } else if (pu.type === 'invincible') {
+      ctx.fillStyle = "#ff6eff";
+      roundRect(ctx, -pu.w/2, -pu.h/2, pu.w, pu.h, 6);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.fillText("⭐", 0, 1);
+    }
 
     ctx.restore();
   }
@@ -452,11 +516,16 @@ function drawPowerups() {
     lastTime = now;
 
     // slow timer update
-    if (slowRemaining > 0) {
-      slowRemaining = Math.max(0, slowRemaining - dtMs);
-      // when >0, obstacles move slower
-      // show HUD
+    if (state === "playing") {
+      if (slowRemaining > 0) {
+        slowRemaining = Math.max(0, slowRemaining - dtMs);
+      }
+      if (invincibleRemaining > 0) {
+        invincibleRemaining = Math.max(0, invincibleRemaining - dtMs);
+      }
     }
+
+
 
     // powerup spawn timer
     nextPowerupIn -= dtMs;
@@ -502,10 +571,13 @@ function drawPowerups() {
       heli.y += heli.vy * dt;
       heli.angle = Math.max(-0.9, Math.min(0.9, heli.vy * 0.06));
 
+
       // move obstacles (account for slowRemaining)
       const speedFactor = slowRemaining > 0 ? slowFactor : 1;
       const moveSpeed = config.obstacleSpeed * speedFactor;
       for (const o of obstacles) o.x -= moveSpeed * dt;
+    // invincible timer update
+
 
       // move powerups left
       for (const pu of powerups) pu.x -= moveSpeed * dt;
@@ -550,8 +622,9 @@ function drawPowerups() {
             collidesCircleRect(heli.x, heli.y, config.helicopterRadius - 2, botRect.x, botRect.y, botRect.w, botRect.h)) {
           handleCrash();
           break;
-        }
-      }
+  }
+}
+
 
       // check pickup collisions
       for (let i = powerups.length - 1; i >= 0; i--) {
@@ -576,7 +649,9 @@ function drawPowerups() {
       ctx.fillText('Level: ' + level, width / 2, 28);
 
       // update HUD elements
-      updatePowerHUD();
+updatePowerHUD();
+showInvincibleTimer();
+
     }
     else if (state === "gameover") {
       const palette = palettes[(level - 1) % palettes.length];
@@ -585,30 +660,36 @@ function drawPowerups() {
       drawHelicopter(heli.x, heli.y, config.helicopterRadius, palette);
       // overlay already shown in endGame()
     }
+else if (state === "shield_pause") {
+  // Show background & helicopter but no collisions
+  const palette = palettes[(level - 1) % palettes.length];
+  renderBackground(palette);
+  drawPowerups();
+  drawHelicopter(heli.x, heli.y, config.helicopterRadius, palette);
+  // obstacles still move in background
+  for (const o of obstacles) o.x -= config.obstacleSpeed * dt;
+  for (const pu of powerups) pu.x -= config.obstacleSpeed * dt;
+}
 
     requestAnimationFrame(loop);
   }
 
   // input handling
-  function setPress(val) {
-    if (val && !pressing) {
-      if (state === "title") {
-        // start game
-        state = "playing";
-        showOverlay("Get Ready!", 800);
-        // small delay before full play to let player prepare
-        setTimeout(() => { /* begin immediately in loop */ }, 250);
-      } else if (state === "gameover") {
-        // restart to title (or immediate restart)
-        resetGame();
-      } else { // playing
-        // thrust
-        heli.vy = config.thrust;
-        playThrustSound();
-      }
+function setPress(val) {
+  if (val && !pressing) {
+    if (state === "title") {
+      state = "playing";
+      showOverlay("Get Ready!", 800);
+    } else if (state === "gameover") {
+      resetGame();
+    } else if (state === "playing") {
+      heli.vy = config.thrust;
     }
-    pressing = val;
   }
+  pressing = val;
+}
+
+
 
   // mouse / touch / keyboard
   window.addEventListener('mousedown', e => { e.preventDefault(); setPress(true); });
